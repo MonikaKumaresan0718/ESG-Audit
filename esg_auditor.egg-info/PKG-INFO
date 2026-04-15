@@ -1,0 +1,44 @@
+Metadata-Version: 2.4
+Name: esg-auditor
+Version: 0.1.0
+Summary: Autonomous Multi-Agent ESG Auditor With Hybrid Zero-Shot Risk Intelligence
+Author-email: Monika <monikakumaresan07@gmail.com>
+License: MIT
+Keywords: ESG,AI,Multi-Agent,CrewAI,Sustainability
+Classifier: Programming Language :: Python :: 3
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: crewai
+Requires-Dist: langchain
+Requires-Dist: fastapi
+Requires-Dist: uvicorn[standard]
+Requires-Dist: streamlit
+Requires-Dist: scikit-learn
+Requires-Dist: xgboost
+Requires-Dist: pandas
+Requires-Dist: numpy
+Requires-Dist: transformers
+Requires-Dist: sentence-transformers
+Requires-Dist: faiss-cpu
+Requires-Dist: chromadb
+Requires-Dist: shap
+Requires-Dist: lime
+Requires-Dist: pymupdf
+Requires-Dist: jinja2
+Requires-Dist: weasyprint
+Requires-Dist: celery
+Requires-Dist: redis
+Requires-Dist: sqlalchemy
+Requires-Dist: pydantic
+Requires-Dist: python-dotenv
+Requires-Dist: matplotlib
+Requires-Dist: plotly
+Requires-Dist: joblib
+Requires-Dist: pytest
+Provides-Extra: dev
+Requires-Dist: black; extra == "dev"
+Requires-Dist: isort; extra == "dev"
+Requires-Dist: flake8; extra == "dev"
+Requires-Dist: mypy; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"

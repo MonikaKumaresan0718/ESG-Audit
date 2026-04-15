@@ -1,0 +1,45 @@
+# ESG Audit Executive Summary
+
+**Company:** {{ company_name }}  
+**Audit ID:** {{ audit_id }}  
+**Generated:** {{ generated_at }}
+
+---
+
+## Overall ESG Assessment
+
+{{ executive_summary }}
+
+---
+
+## ESG Scores
+
+- **Composite ESG Score:** {{ esg_scores.composite_score }} / 100
+- **Risk Tier:** {{ esg_scores.risk_tier }}
+- **Environmental:** {{ esg_scores.dimensional_scores.environmental.score }}
+- **Social:** {{ esg_scores.dimensional_scores.social.score }}
+- **Governance:** {{ esg_scores.dimensional_scores.governance.score }}
+
+---
+
+## Emerging Risks
+
+{% if nlp_analysis.emerging_risks %}
+{% for risk in nlp_analysis.emerging_risks %}
+- **{{ risk.risk }}** (Confidence: {{ (risk.confidence * 100) | round(2) }}%)
+{% endfor %}
+{% else %}
+- No significant emerging risks detected.
+{% endif %}
+
+---
+
+## Investment Recommendation
+
+{{ investment_recommendation }}
+
+---
+
+## Disclaimer
+
+*{{ disclaimer }}*

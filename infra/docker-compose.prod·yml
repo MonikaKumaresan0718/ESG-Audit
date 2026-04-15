@@ -1,0 +1,304 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# ESG Auditor – Production Docker Compose
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Prerequisites:
+#   • Copy .env.example → .env.prod and fill in all secrets
+#   • Create external volume `pgdata` once:
+#       docker volume create pgdata
+#   • Set POSTGRES_PASSWORD in .env.prod
+#
+# ══════════════════════════════════════════════════════════════════════════════
+
+version: "3.9"
+
+# ── Named volumes ─────────────────────────────────────────────────────────────
+volumes:
+  pgdata:
+    driver: local
+  redis_prod_data:
+    driver: local
+  model_artifacts:
+    driver: local
+  reports_prod:
+    driver: local
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  esg_backend:
+    driver: bridge
+    internal: true        # services talk only on this network
+  esg_frontend:
+    driver: bridge        # exposes ports to the host / reverse proxy
+
+# ── Services ──────────────────────────────────────────────────────────────────
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: esg-postgres-prod
+    env_file: ../.env.prod
+    environment:
+      POSTGRES_DB:       esg_auditor
+      POSTGRES_USER:     esg_user
+      # POSTGRES_PASSWORD comes from .env.prod
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - esg_backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U esg_user -d esg_auditor"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: esg-redis-prod
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --requirepass "${REDIS_PASSWORD:-changeme}"
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - esg_backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 640m
+
+  # ── FastAPI API ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+      target: production
+    image: esg-auditor-api:latest
+    container_name: esg-api-prod
+    env_file: ../.env.prod
+    environment:
+      ENVIRONMENT:            production
+      DEBUG:                  "false"
+      DATABASE_URL:           postgresql+asyncpg://esg_user:${POSTGRES_PASSWORD}@postgres:5432/esg_auditor
+      REDIS_URL:              redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      CELERY_BROKER_URL:      redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      CELERY_RESULT_BACKEND:  redis://:${REDIS_PASSWORD:-changeme}@redis:6379/1
+      AUTO_TRAIN_MODEL:       "false"     # models baked into image / volume
+      LOG_LEVEL:              INFO
+      LOG_FORMAT:             json
+      ENABLE_METRICS:         "true"
+    volumes:
+      - model_artifacts:/app/ml/models:ro
+      - reports_prod:/app/outputs
+    ports:
+      - "8000:8000"
+    networks:
+      - esg_backend
+      - esg_frontend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    restart: always
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      resources:
+        limits:
+          memory: 2g
+        reservations:
+          memory: 512m
+
+  # ── Celery Worker ───────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.worker
+      target: production
+    image: esg-auditor-worker:latest
+    container_name: esg-worker-prod
+    env_file: ../.env.prod
+    environment:
+      ENVIRONMENT:            production
+      DATABASE_URL:           postgresql+asyncpg://esg_user:${POSTGRES_PASSWORD}@postgres:5432/esg_auditor
+      REDIS_URL:              redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      CELERY_BROKER_URL:      redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      CELERY_RESULT_BACKEND:  redis://:${REDIS_PASSWORD:-changeme}@redis:6379/1
+      AUTO_TRAIN_MODEL:       "false"
+      LOG_LEVEL:              INFO
+      LOG_FORMAT:             json
+    volumes:
+      - model_artifacts:/app/ml/models:ro
+      - reports_prod:/app/outputs
+    networks:
+      - esg_backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 3g          # NLP models need headroom
+        reservations:
+          memory: 1g
+
+  # ── Celery Beat scheduler ───────────────────────────────────────────────────
+  beat:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.worker
+      target: production
+    image: esg-auditor-worker:latest
+    container_name: esg-beat-prod
+    command: >
+      celery -A core.celery_app.celery_app beat
+      --loglevel=info
+      --schedule=/tmp/celerybeat-schedule
+    env_file: ../.env.prod
+    environment:
+      ENVIRONMENT:            production
+      DATABASE_URL:           postgresql+asyncpg://esg_user:${POSTGRES_PASSWORD}@postgres:5432/esg_auditor
+      REDIS_URL:              redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      CELERY_BROKER_URL:      redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      CELERY_RESULT_BACKEND:  redis://:${REDIS_PASSWORD:-changeme}@redis:6379/1
+    networks:
+      - esg_backend
+    depends_on:
+      - redis
+    restart: always
+    deploy:
+      replicas: 1           # must run as singleton
+
+  # ── Celery Flower (monitoring UI) ───────────────────────────────────────────
+  flower:
+    image: mher/flower:2.0
+    container_name: esg-flower-prod
+    command: >
+      celery
+      --broker=redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      flower
+      --port=5555
+      --basic-auth=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-changeme}
+    ports:
+      - "5555:5555"
+    networks:
+      - esg_backend
+      - esg_frontend
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ── Streamlit UI ────────────────────────────────────────────────────────────
+  ui:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.ui
+      target: production
+    image: esg-auditor-ui:latest
+    container_name: esg-ui-prod
+    env_file: ../.env.prod
+    environment:
+      API_BASE_URL: http://api:8000
+    ports:
+      - "8501:8501"
+    networks:
+      - esg_frontend
+      - esg_backend
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # ── Nginx reverse proxy ─────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: esg-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro   # mount TLS certificates here
+    networks:
+      - esg_frontend
+    depends_on:
+      - api
+      - ui
+    restart: always
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Prometheus ──────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: esg-prometheus-prod
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    networks:
+      - esg_backend
+    restart: unless-stopped
+
+  # ── Grafana ─────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: esg-grafana-prod
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-changeme}"
+      GF_USERS_ALLOW_SIGN_UP:     "false"
+      GF_SERVER_ROOT_URL:         "http://localhost:3000"
+    volumes:
+      - ../monitoring/grafana_dashboard.json:/var/lib/grafana/dashboards/esg.json:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - esg_backend
+    depends_on:
+      - prometheus
+    restart: unless-stopped

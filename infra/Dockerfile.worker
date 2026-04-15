@@ -1,0 +1,25 @@
+FROM python:3.11-slim
+
+LABEL description="ESG Auditor Celery Worker"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p /app/data /app/outputs /app/ml/models /app/ml/experiments
+
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+CMD ["celery", "-A", "core.celery_app.celery_app", "worker", \
+     "--loglevel=info", "--concurrency=2", \
+     "-Q", "audit,maintenance", \
+     "--hostname=worker@%h"]

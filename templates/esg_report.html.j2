@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ESG Audit Report - {{ company_name }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            color: #333;
+            line-height: 1.6;
+            font-size: 12px;
+        }
+
+        h1, h2, h3 {
+            color: #1f4e79;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            font-size: 28px;
+            text-align: center;
+        }
+
+        h2 {
+            font-size: 20px;
+            border-bottom: 2px solid #1f4e79;
+            padding-bottom: 5px;
+            margin-top: 30px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .info-table, table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .info-table td {
+            padding: 6px 4px;
+        }
+
+        th, td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #1f4e79;
+            color: white;
+        }
+
+        .score-grid {
+            display: table;
+            width: 100%;
+            margin-top: 15px;
+        }
+
+        .score-card {
+            display: table-cell;
+            width: 33%;
+            padding: 10px;
+            text-align: center;
+            border: 1px solid #ddd;
+        }
+
+        .score-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1f4e79;
+        }
+
+        .composite-score {
+            text-align: center;
+            margin-top: 20px;
+            padding: 15px;
+            border: 2px solid #1f4e79;
+            background-color: #f2f6fb;
+        }
+
+        .risk-tier {
+            font-size: 18px;
+            font-weight: bold;
+            color: #b30000;
+        }
+
+        .footer {
+            position: fixed;
+            bottom: -1.5cm;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 10px;
+            color: #777;
+            border-top: 1px solid #ccc;
+            padding-top: 5px;
+        }
+
+        .page-number:after {
+            content: counter(page);
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>ESG Audit Report</h1>
+    <p>Autonomous Multi-Agent ESG Auditor</p>
+</div>
+
+<h2>Company Information</h2>
+<table class="info-table">
+    <tr>
+        <td><strong>Company Name:</strong></td>
+        <td>{{ company_name }}</td>
+    </tr>
+    <tr>
+        <td><strong>Audit ID:</strong></td>
+        <td>{{ audit_id }}</td>
+    </tr>
+    <tr>
+        <td><strong>Generated At:</strong></td>
+        <td>{{ generated_at }}</td>
+    </tr>
+</table>
+
+<h2>Executive Summary</h2>
+<p>{{ executive_summary }}</p>
+
+<h2>ESG Scores</h2>
+<div class="score-grid">
+    <div class="score-card">
+        <div>Environmental</div>
+        <div class="score-value">
+            {{ esg_scores.dimensional_scores.environmental.score | round(1) }}
+        </div>
+    </div>
+    <div class="score-card">
+        <div>Social</div>
+        <div class="score-value">
+            {{ esg_scores.dimensional_scores.social.score | round(1) }}
+        </div>
+    </div>
+    <div class="score-card">
+        <div>Governance</div>
+        <div class="score-value">
+            {{ esg_scores.dimensional_scores.governance.score | round(1) }}
+        </div>
+    </div>
+</div>
+
+<div class="composite-score">
+    <h3>Composite ESG Score</h3>
+    <p style="font-size: 26px; font-weight: bold;">
+        {{ esg_scores.composite_score | round(1) }}/100
+    </p>
+    <p class="risk-tier">
+        Risk Tier: {{ esg_scores.risk_tier }}
+    </p>
+</div>
+
+<h2>Emerging Risks</h2>
+{% if nlp_analysis.emerging_risks %}
+<table>
+    <thead>
+        <tr>
+            <th>Risk</th>
+            <th>Confidence</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for risk in nlp_analysis.emerging_risks %}
+        <tr>
+            <td>{{ risk.risk }}</td>
+            <td>{{ (risk.confidence * 100) | round(2) }}%</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No significant emerging risks detected.</p>
+{% endif %}
+
+<h2>SHAP Feature Importance</h2>
+{% if explainability.shap_values %}
+<table>
+    <thead>
+        <tr>
+            <th>Feature</th>
+            <th>Importance</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for feature, importance in explainability.shap_values.items() %}
+        <tr>
+            <td>{{ feature }}</td>
+            <td>{{ importance | round(4) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>SHAP analysis was not available for this audit.</p>
+{% endif %}
+
+<h2>Investment Recommendation</h2>
+<p>{{ investment_recommendation }}</p>
+
+<div class="footer">
+    <p>Generated on {{ generated_at }} | Page <span class="page-number"></span></p>
+</div>
+
+</body>
+</html>

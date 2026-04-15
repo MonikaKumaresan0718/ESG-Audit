@@ -1,0 +1,307 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# ESG Auditor – Kubernetes Ingress
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Apply:
+#   kubectl apply -f infra/k8s/ingress.yaml
+#
+# Prerequisites:
+#   • NGINX Ingress Controller installed:
+#       kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
+#   • cert-manager installed (for TLS):
+#       kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+#   • ClusterIssuer "letsencrypt-prod" configured (see template at bottom)
+#   • DNS records pointing esg-api.example.com and esg-ui.example.com → Ingress LB IP
+#
+# ══════════════════════════════════════════════════════════════════════════════
+
+---
+# ── API Ingress ────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: esg-api-ingress
+  namespace: esg-auditor
+  labels:
+    app: esg-api
+    component: ingress
+  annotations:
+    # ── NGINX Ingress controller ───────────────────────────────────────────
+    kubernetes.io/ingress.class:             "nginx"
+    nginx.ingress.kubernetes.io/use-regex:   "true"
+    nginx.ingress.kubernetes.io/proxy-body-size:         "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout:      "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout:      "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout:   "30"
+
+    # ── Rate limiting (nginx-level) ────────────────────────────────────────
+    nginx.ingress.kubernetes.io/limit-rps:              "10"
+    nginx.ingress.kubernetes.io/limit-connections:      "20"
+
+    # ── CORS ──────────────────────────────────────────────────────────────
+    nginx.ingress.kubernetes.io/enable-cors:             "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods:      "GET, POST, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers:      "Authorization, Content-Type, X-API-Key, X-Request-ID"
+    nginx.ingress.kubernetes.io/cors-allow-origin:       "https://esg-ui.example.com"
+    nginx.ingress.kubernetes.io/cors-max-age:            "86400"
+
+    # ── Security headers ───────────────────────────────────────────────────
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Content-Type-Options   "nosniff"         always;
+      add_header X-Frame-Options          "DENY"            always;
+      add_header X-XSS-Protection         "1; mode=block"   always;
+      add_header Referrer-Policy          "strict-origin"   always;
+      add_header Permissions-Policy       "geolocation=()"  always;
+      more_set_headers "Server: ";
+
+    # ── TLS – cert-manager auto-provisioning ──────────────────────────────
+    cert-manager.io/cluster-issuer:          "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # ── Observability ─────────────────────────────────────────────────────
+    nginx.ingress.kubernetes.io/enable-opentelemetry: "true"
+
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - esg-api.example.com
+      secretName: esg-api-tls
+  rules:
+    - host: esg-api.example.com
+      http:
+        paths:
+          # Health probes (no auth, no rate limit)
+          - path: /(healthz|livez|readyz)
+            pathType: Prefix
+            backend:
+              service:
+                name: esg-api-service
+                port:
+                  number: 80
+
+          # Prometheus metrics (restrict in production via NetworkPolicy)
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: esg-api-service
+                port:
+                  number: 80
+
+          # OpenAPI docs (optional – disable in prod by removing this block)
+          - path: /(docs|redoc|openapi.json)
+            pathType: Prefix
+            backend:
+              service:
+                name: esg-api-service
+                port:
+                  number: 80
+
+          # All versioned API routes
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: esg-api-service
+                port:
+                  number: 80
+
+          # Root
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: esg-api-service
+                port:
+                  number: 80
+
+---
+# ── UI Ingress ─────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: esg-ui-ingress
+  namespace: esg-auditor
+  labels:
+    app: esg-ui
+    component: ingress
+  annotations:
+    kubernetes.io/ingress.class:             "nginx"
+    nginx.ingress.kubernetes.io/proxy-read-timeout:    "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout:    "300"
+    nginx.ingress.kubernetes.io/proxy-body-size:       "5m"
+    # Streamlit uses WebSocket for live updates
+    nginx.ingress.kubernetes.io/proxy-http-version:    "1.1"
+    nginx.ingress.kubernetes.io/proxy-set-headers:     "esg-auditor/ui-proxy-headers"
+    cert-manager.io/cluster-issuer:                    "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect:          "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect:    "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - esg-ui.example.com
+      secretName: esg-ui-tls
+  rules:
+    - host: esg-ui.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: esg-ui-service
+                port:
+                  number: 8501
+
+---
+# ── Streamlit WebSocket proxy header ConfigMap ─────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ui-proxy-headers
+  namespace: esg-auditor
+data:
+  Upgrade:    "$http_upgrade"
+  Connection: "$connection_upgrade"
+  Host:       "$best_http_host"
+
+---
+# ── Ingress for Flower (Celery monitoring) ─────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: esg-flower-ingress
+  namespace: esg-auditor
+  labels:
+    app: esg-flower
+    component: ingress
+  annotations:
+    kubernetes.io/ingress.class:             "nginx"
+    cert-manager.io/cluster-issuer:          "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Restrict Flower access to internal networks only
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - esg-flower.example.com
+      secretName: esg-flower-tls
+  rules:
+    - host: esg-flower.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: esg-flower-service
+                port:
+                  number: 5555
+
+---
+# ── UI Service (ClusterIP) ─────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: esg-ui-service
+  namespace: esg-auditor
+  labels:
+    app: esg-ui
+spec:
+  selector:
+    app: esg-ui
+  ports:
+    - name: streamlit
+      port: 8501
+      targetPort: 8501
+      protocol: TCP
+  type: ClusterIP
+
+---
+# ── Flower Service ─────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: esg-flower-service
+  namespace: esg-auditor
+  labels:
+    app: esg-flower
+spec:
+  selector:
+    app: esg-flower
+  ports:
+    - name: flower
+      port: 5555
+      targetPort: 5555
+  type: ClusterIP
+
+---
+# ── NetworkPolicy – restrict inter-pod traffic ─────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: esg-api-netpol
+  namespace: esg-auditor
+spec:
+  podSelector:
+    matchLabels:
+      app: esg-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow DNS
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow HTTPS for model downloads (HuggingFace Hub)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# ── cert-manager ClusterIssuer template ───────────────────────────────────────
+# Uncomment and apply once cert-manager is installed.
+#
+# apiVersion: cert-manager.io/v1
+# kind: ClusterIssuer
+# metadata:
+#   name: letsencrypt-prod
+# spec:
+#   acme:
+#     server: https://acme-v02.api.letsencrypt.org/directory
+#     email: your-email@example.com
+#     privateKeySecretRef:
+#       name: letsencrypt-prod-key
+#     solvers:
+#       - http01:
+#           ingress:
+#             class: nginx

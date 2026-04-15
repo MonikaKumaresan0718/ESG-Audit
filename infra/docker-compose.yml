@@ -1,0 +1,98 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: esg-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+    container_name: esg-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=false
+      - DATABASE_URL=sqlite+aiosqlite:///./data/esg_auditor.db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - AUTO_TRAIN_MODEL=true
+      - VERBOSE_AGENTS=false
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    volumes:
+      - ../data:/app/data
+      - ../outputs:/app/outputs
+      - ../ml/models:/app/ml/models
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    restart: unless-stopped
+    env_file:
+      - ../.env.example
+
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.worker
+    container_name: esg-worker
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=sqlite+aiosqlite:///./data/esg_auditor.db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - AUTO_TRAIN_MODEL=true
+      - VERBOSE_AGENTS=false
+      - LOG_LEVEL=INFO
+    volumes:
+      - ../data:/app/data
+      - ../outputs:/app/outputs
+      - ../ml/models:/app/ml/models
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file:
+      - ../.env.example
+
+  ui:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.ui
+    container_name: esg-ui
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE_URL=http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: esg-auditor-network

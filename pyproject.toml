@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "esg-auditor"
+version = "0.1.0"
+description = "Autonomous Multi-Agent ESG Auditor With Hybrid Zero-Shot Risk Intelligence"
+authors = [
+    { name = "Monika", email = "monikakumaresan07@gmail.com" }
+]
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["ESG", "AI", "Multi-Agent", "CrewAI", "Sustainability"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+# Dependencies (same as requirements.txt)
+dependencies = [
+    "crewai",
+    "langchain",
+    "fastapi",
+    "uvicorn[standard]",
+    "streamlit",
+    "scikit-learn",
+    "xgboost",
+    "pandas",
+    "numpy",
+    "transformers",
+    "sentence-transformers",
+    "faiss-cpu",
+    "chromadb",
+    "shap",
+    "lime",
+    "pymupdf",
+    "jinja2",
+    "weasyprint",
+    "celery",
+    "redis",
+    "sqlalchemy",
+    "pydantic",
+    "python-dotenv",
+    "matplotlib",
+    "plotly",
+    "joblib",
+    "pytest"
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "flake8",
+    "mypy",
+    "pytest-cov"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agents*", "tools*", "ml*", "api*", "ui*", "core*", "tasks*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra -q"
