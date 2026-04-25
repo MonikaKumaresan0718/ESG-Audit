@@ -5,3 +5,5 @@ logs/
 outputs/
 .env
 *.db
+data/*.faiss
+data/*.pkl
