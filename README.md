@@ -105,7 +105,7 @@ streamlit run ui/app.py
 ## Contributors
 - Monika Kumaresan
 - Anusri Baskaran (Github:https://github.com/anusribaskaran2-arch)
-- 
+
 ## Team Contributions
 
 **Monika Kumaresan**
