@@ -119,7 +119,7 @@ streamlit run ui/app.py
 - Engineered prompts and LLM interaction logic for ESG analysis
 - Developed Streamlit UI and report generation module
 - Led testing, validation, and deployment setup (Docker, environment config)
-- 
+
 ## License
 
 This project is licensed under the MIT License.
