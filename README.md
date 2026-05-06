@@ -102,10 +102,24 @@ streamlit run ui/app.py
 * Cloud deployment support
 * Export to PDF and Excel
 
-## Contributing
+## Contributors
+- Monika Kumaresan
+- Anusri Baskaran (Github:https://github.com/anusribaskaran2-arch)
+- 
+## Team Contributions
 
-Contributions are welcome. Please fork the repository, create a feature branch, and submit a pull request.
+**Monika Kumaresan**
+- Designed multi-agent ESG pipeline architecture and workflow orchestration
+- Implemented RAG system using FAISS and LLM integration
+- Built backend APIs (FastAPI) and async task processing (Celery, Redis)
+- Integrated explainability (SHAP) and model inference pipeline
 
+**Anusri baskaran**
+- Designed data ingestion flow and ESG data preprocessing pipeline
+- Engineered prompts and LLM interaction logic for ESG analysis
+- Developed Streamlit UI and report generation module
+- Led testing, validation, and deployment setup (Docker, environment config)
+- 
 ## License
 
 This project is licensed under the MIT License.
